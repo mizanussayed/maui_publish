@@ -1,0 +1,69 @@
+name: Version
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+        ref: develop
+        token: ${{ secrets.PAT }}
+
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: 21.x
+
+    - name: Install NPM Packages
+      run: npm ci
+      working-directory: ./
+
+    - name: Bump Version
+      run: npm run version
+      working-directory: ./
+
+    - name: Sync Changesets Version
+      shell: pwsh
+      run: |
+        $package = Get-Content -Raw ./package.json | ConvertFrom-Json
+        $version = $package.version
+
+        $xml = [Xml] (Get-Content ./src/MauiDeploy.csproj)
+        $xml.Project.PropertyGroup.ApplicationDisplayVersion = $version
+        $xml.Save("./src/MauiDeploy.csproj")
+
+        $appinstallerXml = [Xml] (Get-Content ./src/MauiDeploy.appinstaller)
+        $appinstallerNewVersion = "{0}.0" -f $version
+        $appinstallerXml.AppInstaller.MainPackage.Version = $appinstallerNewVersion
+        $appinstallerXml.Save("./src/MauiDeploy.appinstaller")
+
+    - name: Commit Version Bump
+      run: |
+        git config user.name "GitHub Actions Bot"
+        git config user.email "<>"
+        git add ./src/MauiDeploy.csproj
+        git add ./src/MauiDeploy.appinstaller
+        git add ./CHANGELOG.md
+        git add ./.changeset
+        git add ./package.json
+        git commit -m "Bump version"
+
+    - name: Push Version Bump
+      run: git push origin develop
+
+    - name: Develop -> main
+      run: |
+        git fetch origin main
+        git checkout -b main origin/main
+        git merge develop
+        git push origin main

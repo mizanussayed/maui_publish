@@ -1,0 +1,85 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+    
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+      with:
+        dotnet-version: 8.0.x
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: 8.0.x
+        
+    - name: Install MAUI Workload
+      run: dotnet workload install maui
+
+    - name: Restore Dependency
+      run: dotnet restore
+      working-directory: ./
+      
+    - name: Build
+      run: dotnet build -c Release -f:net8.0-windows10.0.19041.0
+      working-directory: ./
+
+    - name: Decode Signing Certificate
+      run: |
+        echo "${{ secrets.SIGNING_CERTIFICATE_BASE_64_CONTENT }}" > cert.asc
+        certutil -decode cert.asc cert.pfx
+
+    - name: Install Signing Certficiate
+      run: certutil -user -p ${{ secrets.SIGNING_CERTIFICATE_PASSWORD }} -Silent -importpfx cert.pfx NoRoot
+
+    - name: Publish
+      run: dotnet publish -c Release -f:net8.0-windows10.0.19041.0 /p:GenerateAppxPackageOnBuild=true /p:AppxPackageSigningEnabled=true /p:PackageCertificateThumbprint=${{ secrets.SIGNING_CERTIFICATE_THUMBPRINT }}
+      working-directory: ./   
+
+    - name: Extract Version
+      id: extractVersion
+      shell: pwsh
+      run: |
+        $xml = [Xml] (Get-Content ./MauiDeploy.csproj)
+        [string] $version = [Version] $xml.Project.PropertyGroup.ApplicationDisplayVersion
+        echo "version=$($version)" >> $env:GITHUB_OUTPUT
+
+    - name: Create Tag
+      uses: actions/github-script@v5
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          github.rest.git.createRef({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            sha: context.sha,
+            ref: 'refs/tags/v${{ steps.extractVersion.outputs.version }}'
+          })
+
+    - name: Rename Auto-Update Installer
+      shell: pwsh
+      run: Rename-Item ./bin/Release/net8.0-windows10.0.19041.0/win10-x64/AppPackages/MauiDeploy_${{ steps.extractVersion.outputs.version }}.0_Test/MauiDeploy_${{ steps.extractVersion.outputs.version }}.0_x64.msix AutoUpdate.msix
+
+    - name: Rename Certificate
+      shell: pwsh
+      run: Rename-Item ./bin/Release/net8.0-windows10.0.19041.0/win10-x64/AppPackages/MauiDeploy_${{ steps.extractVersion.outputs.version }}.0_Test/MauiDeploy_${{ steps.extractVersion.outputs.version }}.0_x64.cer MauiDeploy.cer
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ steps.extractVersion.outputs.version }}
+        files: | 
+          ./MauiDeploy.appinstaller
+          ./bin/Release/net8.0-windows10.0.19041.0/win10-x64/AppPackages/MauiDeploy_${{ steps.extractVersion.outputs.version }}.0_Test/AutoUpdate.msix
+          ./bin/Release/net8.0-windows10.0.19041.0/win10-x64/AppPackages/MauiDeploy_${{ steps.extractVersion.outputs.version }}.0_Test/MauiDeploy.cer
