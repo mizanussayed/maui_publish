@@ -1,0 +1,23 @@
+write below command in host mechine for port poxy
+> netsh interface portproxy add v4tov4 listenport=4040 listenaddress=0.0.0.0 connectport=4040 connectaddress=172.18.146.192
+> netsh interface portproxy show all
+> wf   -- for opening window defender firewall
+
+## for ssh server port 22
+ssh (secure shall) server in wsl and configure like before with port 22
+
+
+centos by default dose not include in wsl but can be use by importing from docker centos image or container
+Rocky linux can be also prefered than centos for enterprise lavel expricence
+
+for docker auto installing script call
+
+sudo wget -qo - https:bonguides.com/docker | bash  
+
+https://raw.githubusercontent.com/bonben365/linux/main/docker-install.sh
+
+
+to install GUI of linux in WSL need  to following below steps
+
+sudo apt-get update && sudo apt-get -y upgrade
+sudo wget -qo - https:bonguides.com/wsl/xrdp  | bash
