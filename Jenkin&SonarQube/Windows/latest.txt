@@ -1,0 +1,86 @@
+pipeline {
+  agent any
+  
+  environment {
+      dotnet = 'C:\\Program Files\\dotnet\\dotnet.exe'
+  }
+  
+  triggers {
+      pollSCM('H * * * *')
+  }
+  
+  stages {
+      stage ('Clean Workspace') {
+          steps {
+              cleanWs()
+          }
+      }
+      
+      stage('Checkout Stage') {
+          steps {
+              git credentialsId: '5bc750f2-eeaf-4b67-b02e-bc3dedb48578', 
+                  url: 'https://gitlab.com/najibcse/dms_api.git', 
+                  branch: 'dev-mizan'
+          }
+      }
+      
+      stage('Restore Stage') {
+          steps {
+              bat "dotnet restore %WORKSPACE%\\DMSApi.sln"
+          }
+      }
+
+      stage('Build Stage') {
+          steps {
+              bat "dotnet build %WORKSPACE%\\src\\DMS.Api\\DMS.Api.csproj --configuration Release --no-restore"
+          }
+      }
+
+      stage('SonarQube Analysis') {
+          steps {
+              script {
+                  def scannerHome = tool 'SonarScanner MsBuild'
+                  withSonarQubeEnv() {
+                      bat "dotnet ${scannerHome}\\SonarScanner.MSBuild.dll begin /k:\"Dms_API_Jen\""
+                      bat "dotnet build"
+                      bat "dotnet ${scannerHome}\\SonarScanner.MSBuild.dll end"
+                  }
+              }
+          }
+      }
+
+      stage('Publish Stage') {
+          steps {
+              bat "dotnet publish %WORKSPACE%\\src\\DMS.Api\\DMS.Api.csproj --configuration Release --no-restore --no-build"
+          }
+      }
+      
+      stage('Transfer Files to Remote Server') {
+          steps {
+              script {
+                  sshPublisher(
+                      publishers: [
+                          sshPublisherDesc(
+                              configName: 'LGED',
+                              transfers: [
+                                  sshTransfer(
+                                      sourceFiles: 'src/DMS.Api/bin/Release/net8.0/publish/**',
+                                      removePrefix: 'src/DMS.Api/bin/Release/net8.0/publish',
+                                      remoteDirectory: '',
+                                      execCommand: """
+                                          powershell -Command "Restart-WebAppPool -Name 'JenkinTest'; Restart-WebItem -Name 'IIS:\\Sites\\JenkinTest'"
+                                      """, 
+                                      flatten: false,  
+                                      cleanRemote: false  
+                                 )
+                              ],
+                              usePromotionTimestamp: false,
+                              verbose: true
+                          )
+                      ]
+                  )
+              }
+          }
+     }
+  }
+}
